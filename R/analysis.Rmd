@@ -1,0 +1,140 @@
+---
+title: "Coronavirus Outbreak Analysis"
+author: "Dennis van den Berg"
+date: "3/1/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(plotly)
+```
+
+
+# Data
+
+
+```{r}
+# URLs with recemt data
+url_confirmed <- 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv'
+url_deaths <- 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Deaths.csv'
+url_recovered <- 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Recovered.csv'
+```
+
+```{r}
+# Load from URL
+df_confirmed_raw <- read_csv(file = url_confirmed)
+df_deaths_raw <- read_csv(file = url_deaths)
+df_recovered_raw <- read_csv(file = url_recovered)
+
+# Some cleaning
+df_confirmed <- df_confirmed_raw %>% 
+  pivot_longer(names_to = 'Date', values_to = 'Confirmed', cols = matches("/[0-9][0-9]$"))
+df_deaths <- df_deaths_raw %>% 
+  pivot_longer(names_to = 'Date', values_to = 'Deaths', cols = matches("/[0-9][0-9]$"))
+df_recovered <- df_recovered_raw %>% 
+  pivot_longer(names_to = 'Date', values_to = 'Recovered', cols = matches("/[0-9][0-9]$"))
+
+# Merged (totals per region)
+df_regional_timeseries <- df_confirmed %>% 
+  merge(df_deaths, all = TRUE) %>% 
+  merge(df_recovered, all = TRUE) %>% 
+  rename(Province = `Province/State`) %>% 
+  rename(Country = `Country/Region`) %>% 
+  mutate(Date = mdy(Date)) %>% 
+  mutate(Active = Confirmed - Deaths - Recovered)
+
+# Country totals
+df_country_timeseries <- df_regional_timeseries %>% 
+  aggregate(cbind(Confirmed, Deaths, Recovered, Active) ~ Country + Date, data = ., FUN = sum)
+```
+
+
+
+# Visualize country totals per day
+
+```{r fig.width=10}
+countries <- c('Mainland China', 'Netherlands', 'France', 'UK', 'Italy', 'Iran')
+
+# Country totals
+df_country_timeseries %>% 
+  filter(Country %in% countries) %>% 
+  pivot_longer(cols = c('Confirmed', 'Deaths', 'Recovered', 'Active'), names_to = 'Type', values_to = 'Count') %>% 
+  filter(Type != 'Confirmed') %>% 
+  {ggplot(., aes(x = Date, y = Count, fill = Type)) +
+      geom_col() + 
+      facet_wrap('Country', scales = 'free_y')} %>% 
+  ggplotly()
+```
+
+
+
+# Calculate growth rates
+
+Definition: Growth ratio of confirmed cases = number of current Confirmed cases in country / Confirmed cases 7 days ago.
+
+```{r}
+df_country_timeseries_features <- df_country_timeseries %>% 
+  group_by(Country) %>% 
+    arrange(Date) %>%
+    mutate(Confirmed_ratio_lag7 = Confirmed / lag(Confirmed, n = 7)) %>% 
+    mutate(Death_ratio_lag7 = Deaths / lag(Deaths, n = 7)) %>% 
+    mutate(Recovered_ratio_lag7 = Recovered / lag(Recovered, n = 7)) %>% 
+    mutate(Active_ratio_lag7 = Active / lag(Active, n = 7)) %>% 
+    mutate(First_confirmed = min(Date[Confirmed > 0])) %>% 
+    mutate(First_death = min(Date[Deaths > 0])) %>% 
+    mutate(First_recovered = min(Date[Recovered > 0])) %>% 
+  ungroup()
+
+df_country_timeseries_features %>% 
+  {ggplot(., aes(x = Date, y = Confirmed_ratio_lag7, color = Country)) +
+      geom_line()} %>% 
+  ggplotly()
+```
+
+
+```{r}
+df_country_timeseries_features %>% 
+  group_by(Country) %>% 
+  arrange(desc(Date)) %>% 
+  filter(row_number() == 1) %>% 
+  ungroup() %>% 
+  filter(!is.na(Confirmed_ratio_lag7) & !is.infinite(Confirmed_ratio_lag7)) %>% 
+  {ggplot(., aes(x = reorder(Country, Confirmed_ratio_lag7), y = Confirmed_ratio_lag7)) +
+      geom_col(aes(fill = log10(Confirmed))) +
+      geom_hline(yintercept = 1, linetype = 2) +
+      xlab('Country') +
+      coord_flip() +
+      ggtitle('Growth rates (7-day lag)')} %>% 
+  ggplotly()
+```
+
+
+Plot countries with highest growth rates
+
+```{r}
+# Countries with highest growth rates
+fast_growing_countries <- df_country_timeseries_features %>% 
+  group_by(Country) %>% 
+  arrange(desc(Date)) %>% 
+  filter(row_number() == 1) %>% 
+  ungroup() %>% 
+  filter(!is.na(Confirmed_ratio_lag7) & !is.infinite(Confirmed_ratio_lag7)) %>% 
+  filter(Confirmed_ratio_lag7 > 4) %>% 
+  {.[['Country']]}
+
+# Country totals
+df_country_timeseries_features %>% 
+  filter(Country %in% fast_growing_countries) %>% 
+  pivot_longer(cols = c('Confirmed', 'Deaths', 'Recovered', 'Active'), names_to = 'Type', values_to = 'Count') %>% 
+  filter(Type != 'Confirmed') %>% 
+  {ggplot(., aes(x = Date, y = Count, fill = Type)) +
+      geom_col() + 
+      facet_wrap('Country', scales = 'free_y') +
+      ggtitle('Countries with highest growth rates')} %>% 
+  ggplotly()
+```
+
+
