@@ -6,15 +6,14 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, fig.width = 12)
 library(tidyverse)
 library(lubridate)
 library(plotly)
 ```
 
 
-# Data
-
+# Data prep
 
 ```{r}
 # URLs with recemt data
@@ -25,9 +24,9 @@ url_recovered <- 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/mast
 
 ```{r}
 # Load from URL
-df_confirmed_raw <- read_csv(file = url_confirmed)
-df_deaths_raw <- read_csv(file = url_deaths)
-df_recovered_raw <- read_csv(file = url_recovered)
+df_confirmed_raw <- read_csv(file = url_confirmed, col_types = cols())
+df_deaths_raw <- read_csv(file = url_deaths, col_types = cols())
+df_recovered_raw <- read_csv(file = url_recovered, col_types = cols())
 
 # Some cleaning
 df_confirmed <- df_confirmed_raw %>% 
@@ -52,10 +51,25 @@ df_country_timeseries <- df_regional_timeseries %>%
 ```
 
 
+```{r}
+# Extract basic statistics about retrieved data
+max_date <- max(df_regional_timeseries$Date)
+number_of_countries <- length(unique(df_regional_timeseries$Country))
+```
 
-# Visualize country totals per day
+Last updated: `r max_date`
 
-```{r fig.width=10}
+Number of countries in dataset: `r number_of_countries`
+
+Data source: https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/
+
+
+
+# Country totals per day
+
+For manually selected countries
+
+```{r}
 countries <- c('Mainland China', 'Netherlands', 'France', 'UK', 'Italy', 'Iran')
 
 # Country totals
@@ -65,7 +79,8 @@ df_country_timeseries %>%
   filter(Type != 'Confirmed') %>% 
   {ggplot(., aes(x = Date, y = Count, fill = Type)) +
       geom_col() + 
-      facet_wrap('Country', scales = 'free_y')} %>% 
+      facet_wrap('Country', scales = 'free_y') +
+      ggtitle('Coronavirus cases')} %>% 
   ggplotly()
 ```
 
@@ -87,11 +102,6 @@ df_country_timeseries_features <- df_country_timeseries %>%
     mutate(First_death = min(Date[Deaths > 0])) %>% 
     mutate(First_recovered = min(Date[Recovered > 0])) %>% 
   ungroup()
-
-df_country_timeseries_features %>% 
-  {ggplot(., aes(x = Date, y = Confirmed_ratio_lag7, color = Country)) +
-      geom_line()} %>% 
-  ggplotly()
 ```
 
 
@@ -111,8 +121,19 @@ df_country_timeseries_features %>%
   ggplotly()
 ```
 
+Growth rates over time
 
-Plot countries with highest growth rates
+```{r}
+df_country_timeseries_features %>% 
+  {ggplot(., aes(x = Date, y = Confirmed_ratio_lag7, color = Country)) +
+      geom_line()} %>% 
+  ggplotly()
+```
+
+
+
+
+Countries with highest growth rates
 
 ```{r}
 # Countries with highest growth rates
